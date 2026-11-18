@@ -21,11 +21,21 @@ with your Claude plan. No API key is used.
 ## Notes
 
 - 0.1 is read-only: Claude cannot change the project
-- Ctrl+Enter sends
-- Open Settings and press Test to check that the claude command is found
+- Send button or Ctrl+Enter sends
+- Press Settings, then Test, to check that the claude command is found
+- Claude can show choice dialogs (buttons or checkboxes)
         ]]></description>
         <link rel="website">https://github.com/amenonegames/reaper-fellows</link>
       </metadata>
+      <version name="0.1.1" author="amenonegames" time="2026-11-18T09:15:57Z">
+        <changelog><![CDATA[
+- Redesigned window: header showing what is attached, transcript, composer with a Send button
+- Context options and settings moved into popups
+- Choice dialogs: Claude can ask with buttons or checkboxes
+- Code blocks in monospace with their own Copy button
+        ]]></changelog>
+        <source main="main">https://github.com/amenonegames/reaper-fellows/raw/09be77f55c5bfcc46777a2df599ba85cffc67e66/ClaudePanel.lua</source>
+      </version>
       <version name="0.1.0" author="amenonegames" time="2026-11-18T08:51:18Z">
         <changelog><![CDATA[
 First release: chat panel with the REAPER selection attached to each message.
