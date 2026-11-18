@@ -1,6 +1,6 @@
 -- @description Claude Panel - ask Claude about the current selection
 -- @author amenonegames
--- @version 0.1.0
+-- @version 0.1.1
 -- @about
 --   # Claude Panel
 --   A dockable chat window inside REAPER. Each message can carry a text
@@ -9,6 +9,9 @@
 --
 --   It talks to Claude through the Claude Code command line (`claude -p`),
 --   signed in with your Claude plan. No API key is used.
+--
+--   Claude can show choice dialogs (buttons or checkboxes) when it needs you
+--   to pick between options.
 --
 --   Requires: ReaImGui 0.9 or newer, and Claude Code installed and signed in.
 --   v0.1 is read-only: Claude cannot change the project.
@@ -26,7 +29,7 @@ end
 package.path = reaper.ImGui_GetBuiltinPath() .. "/?.lua;" .. package.path
 local ImGui = require "imgui" "0.9"
 
-local VERSION = "0.1.0"
+local VERSION = "0.1.1"
 local IS_WINDOWS = reaper.GetOS():match("^Win") ~= nil
 local SEP = IS_WINDOWS and "\\" or "/"
 
@@ -419,7 +422,15 @@ Each message may start with a <reaper_context> block. The panel generates it fro
 
 You cannot change the project from here. When the person wants something done, say which REAPER actions or steps do it, or write a short ReaScript in Lua they can run.
 
-Answer in the language the person writes in. Keep answers short and concrete. The panel shows plain text: no tables, no headings, and code only in fenced blocks.]]
+Answer in the language the person writes in. Keep answers short and concrete. The panel shows plain text: no tables, no headings, and code only in fenced blocks.
+
+When you need the person to pick between options before you can go on, you can show a choice dialog. End your message with one fenced block tagged `choices` that contains a single JSON object:
+
+```choices
+{"question": "Which section should I look at?", "multi": false, "options": ["Verse", "Chorus", "Bridge"]}
+```
+
+"multi": false shows one button per option and the person picks exactly one; "multi": true shows checkboxes and they can tick several. Give 2 to 6 short options, written in the person's language. Their pick arrives as the next message. Use at most one dialog per message, only when the answer changes what you do next, and never for something you can decide yourself. The person can always type a reply instead.]]
 
 local chat = {
   messages = {},        -- { role = "user"|"assistant"|"error", text, context }
@@ -661,8 +672,9 @@ local function cancelRequest()
   finishRequest(r, "Cancelled.")
 end
 
-local function send()
-  local text = chat.input:gsub("^%s+", ""):gsub("%s+$", "")
+-- Sends the input box, or `override` when a choice dialog answers for the person.
+local function send(override)
+  local text = (override or chat.input):gsub("^%s+", ""):gsub("%s+$", "")
   if text == "" or req then return end
   local contextText, summary
   if cfg.attach then contextText, summary = buildContext() end
@@ -670,7 +682,7 @@ local function send()
   local r, err = startRequest(text, contextText)
   if r then
     req = r
-    chat.input = ""
+    if not override then chat.input = "" end
   else
     chat.messages[#chat.messages+1] = { role = "error", text = err }
   end
@@ -698,185 +710,502 @@ end
 -- ============================================================================
 -- UI
 -- ============================================================================
+-- Look: a cool charcoal that sits next to REAPER's own panels, one amber accent
+-- (the colour of an armed lamp) kept for the things you act on - your own
+-- messages and the Send button - and teal for Claude's side of the conversation.
 
 local ctx = ImGui.CreateContext("Claude Panel")
-local font = ImGui.CreateFont(cfg.fontFamily, cfg.fontSize)
-ImGui.Attach(ctx, font)
+local fontBody  = ImGui.CreateFont(cfg.fontFamily, cfg.fontSize)
+local fontBold  = ImGui.CreateFont(cfg.fontFamily, cfg.fontSize, ImGui.FontFlags_Bold)
+local fontSmall = ImGui.CreateFont(cfg.fontFamily, math.max(9, cfg.fontSize - 2))
+local fontMono  = ImGui.CreateFont("monospace", math.max(9, cfg.fontSize - 1))
+for _, f in ipairs({ fontBody, fontBold, fontSmall, fontMono }) do ImGui.Attach(ctx, f) end
 
-local COL_USER  = 0x8FC7FFFF
-local COL_CLAUDE = 0xE8B07AFF
-local COL_ERROR = 0xFF7A7AFF
-local COL_DIM   = 0x9A9A9AFF
+local C = {
+  bg        = 0x24272CFF,   -- window
+  surface   = 0x2F333AFF,   -- input, buttons, message blocks
+  surfaceHi = 0x3A3F47FF,   -- hovered
+  surfaceLo = 0x1D2024FF,   -- code blocks
+  border    = 0x41464EFF,
+  text      = 0xE6E3DCFF,
+  muted     = 0x8D939CFF,
+  amber     = 0xF2C14EFF,
+  amberHi   = 0xF7D27AFF,
+  amberLo   = 0xD9A93AFF,
+  onAmber   = 0x1E2023FF,
+  teal      = 0x6FB8A8FF,
+  error     = 0xE5736BFF,
+}
+
+local THEME_COLORS = {
+  { ImGui.Col_WindowBg, C.bg }, { ImGui.Col_ChildBg, 0x00000000 }, { ImGui.Col_PopupBg, 0x2A2E34FF },
+  { ImGui.Col_Border, C.border }, { ImGui.Col_Separator, C.border },
+  { ImGui.Col_Text, C.text }, { ImGui.Col_TextDisabled, C.muted },
+  { ImGui.Col_FrameBg, C.surface }, { ImGui.Col_FrameBgHovered, C.surfaceHi }, { ImGui.Col_FrameBgActive, C.surfaceHi },
+  { ImGui.Col_Button, C.surface }, { ImGui.Col_ButtonHovered, C.surfaceHi }, { ImGui.Col_ButtonActive, C.border },
+  { ImGui.Col_Header, C.surface }, { ImGui.Col_HeaderHovered, C.surfaceHi }, { ImGui.Col_HeaderActive, C.surfaceHi },
+  { ImGui.Col_CheckMark, C.amber }, { ImGui.Col_TextSelectedBg, 0xF2C14E55 },
+  { ImGui.Col_TitleBg, C.bg }, { ImGui.Col_TitleBgActive, C.surface }, { ImGui.Col_TitleBgCollapsed, C.bg },
+  { ImGui.Col_ScrollbarBg, 0x00000000 }, { ImGui.Col_ScrollbarGrab, C.surfaceHi },
+  { ImGui.Col_ScrollbarGrabHovered, C.border }, { ImGui.Col_ScrollbarGrabActive, C.muted },
+}
+local THEME_VARS = {
+  { ImGui.StyleVar_WindowPadding, 10, 10 }, { ImGui.StyleVar_ItemSpacing, 8, 6 },
+  { ImGui.StyleVar_FramePadding, 8, 5 }, { ImGui.StyleVar_FrameRounding, 4 },
+  { ImGui.StyleVar_PopupRounding, 6 }, { ImGui.StyleVar_ChildRounding, 4 },
+  { ImGui.StyleVar_WindowRounding, 6 }, { ImGui.StyleVar_GrabRounding, 4 },
+  { ImGui.StyleVar_ScrollbarSize, 10 },
+}
+
+local function pushTheme()
+  for _, c in ipairs(THEME_COLORS) do ImGui.PushStyleColor(ctx, c[1], c[2]) end
+  for _, v in ipairs(THEME_VARS) do ImGui.PushStyleVar(ctx, v[1], v[2], v[3]) end
+end
+local function popTheme()
+  ImGui.PopStyleVar(ctx, #THEME_VARS)
+  ImGui.PopStyleColor(ctx, #THEME_COLORS)
+end
 
 local ui = {
-  preview = "", previewSummary = "", previewTime = 0,
+  preview = "", summary = "", previewTime = 0,
   testResult = "",
   fontFamily = cfg.fontFamily, fontSize = tostring(cfg.fontSize),
+  focusInput = true,
 }
 
 local function checkbox(label, key, settingKey)
   local changed, value = ImGui.Checkbox(ctx, label, cfg[key])
-  if changed then cfg[key] = value; setBool(settingKey, value) end
+  if changed then cfg[key] = value; setBool(settingKey, value); ui.previewTime = 0 end
   return changed
 end
 
-local function drawMessages(height)
-  if ImGui.BeginChild(ctx, "messages", 0, height) then
-    if #chat.messages == 0 then
-      ImGui.PushStyleColor(ctx, ImGui.Col_Text, COL_DIM)
-      ImGui.TextWrapped(ctx, "Select tracks, items or MIDI notes in REAPER, then ask about them. " ..
-        "What is selected is attached to each message (see \"Attached context\" below).")
-      ImGui.PopStyleColor(ctx)
-    end
-    for i, m in ipairs(chat.messages) do
-      ImGui.PushID(ctx, tostring(i))
-      local text = messageText(m)
-      if m.role == "user" then
-        ImGui.TextColored(ctx, COL_USER, "You")
-        if m.context then
-          ImGui.SameLine(ctx)
-          ImGui.TextColored(ctx, COL_DIM, "(with " .. m.context .. ")")
-        end
-        ImGui.TextWrapped(ctx, text)
-      else
-        local isError = m.role == "error"
-        ImGui.TextColored(ctx, isError and COL_ERROR or COL_CLAUDE, isError and "Error" or "Claude")
-        if text ~= "" then
-          ImGui.SameLine(ctx)
-          if ImGui.SmallButton(ctx, "Copy") then ImGui.SetClipboardText(ctx, text) end
-        end
-        if isError then ImGui.PushStyleColor(ctx, ImGui.Col_Text, COL_ERROR) end
-        ImGui.TextWrapped(ctx, text)
-        if isError then ImGui.PopStyleColor(ctx) end
-      end
-      ImGui.Spacing(ctx)
-      ImGui.PopID(ctx)
-    end
-    if req then
-      local dots = string.rep(".", math.floor(reaper.time_precise() * 2) % 4)
-      ImGui.TextColored(ctx, COL_DIM, req.status .. dots)
-    end
-    if chat.scrollToBottom then
-      ImGui.SetScrollHereY(ctx, 1.0)
-      chat.scrollToBottom = false
-    end
-    ImGui.EndChild(ctx)
+local function smallText(color, text)
+  ImGui.PushFont(ctx, fontSmall)
+  ImGui.TextColored(ctx, color, text)
+  ImGui.PopFont(ctx)
+end
+
+local function buttonWidth(label)
+  local w = ImGui.CalcTextSize(ctx, label)
+  return w + 16          -- FramePadding.x on both sides
+end
+
+-- Keeps the description of the selection current; the header shows its
+-- summary and the context popup shows the whole text.
+local function refreshPreview()
+  local now = reaper.time_precise()
+  if now - ui.previewTime < 0.5 then return end
+  ui.previewTime = now
+  if cfg.attach then
+    ui.preview, ui.summary = buildContext()
+  else
+    ui.preview, ui.summary = "", ""
   end
 end
 
-local function drawContextSection()
-  if not ImGui.CollapsingHeader(ctx, "Attached context") then return end
-  checkbox("Attach to each message", "attach", "attach")
+-- ---------------------------------------------------------------------------
+-- Header: what is attached, and the two things that are not a message
+-- ---------------------------------------------------------------------------
+
+local function drawContextPopup()
+  if not ImGui.BeginPopup(ctx, "context") then return end
+  checkbox("Attach the selection to each message", "attach", "attach")
+  ImGui.Spacing(ctx)
   ImGui.BeginDisabled(ctx, not cfg.attach)
   checkbox("Selected tracks", "incTracks", "inc_tracks"); ImGui.SameLine(ctx)
   checkbox("Selected items", "incItems", "inc_items"); ImGui.SameLine(ctx)
   checkbox("MIDI notes", "incNotes", "inc_notes")
-  checkbox("Markers / regions", "incMarkers", "inc_markers"); ImGui.SameLine(ctx)
-  checkbox("All tracks overview", "incAllTracks", "inc_all_tracks")
+  checkbox("Markers and regions", "incMarkers", "inc_markers"); ImGui.SameLine(ctx)
+  checkbox("All tracks", "incAllTracks", "inc_all_tracks")
   ImGui.EndDisabled(ctx)
-
-  -- Preview of exactly what would be sent now, refreshed twice a second
-  local now = reaper.time_precise()
-  if now - ui.previewTime > 0.5 then
-    ui.previewTime = now
-    if cfg.attach then ui.preview, ui.previewSummary = buildContext()
-    else ui.preview, ui.previewSummary = "(nothing is attached)", "" end
-  end
-  if ImGui.BeginChild(ctx, "preview", 0, 150) then
-    ImGui.PushStyleColor(ctx, ImGui.Col_Text, COL_DIM)
-    ImGui.TextWrapped(ctx, ui.preview)
+  ImGui.Spacing(ctx)
+  smallText(C.muted, "This is what the next message will carry:")
+  ImGui.PushStyleColor(ctx, ImGui.Col_ChildBg, C.surfaceLo)
+  if ImGui.BeginChild(ctx, "preview", 460, 240) then
+    ImGui.PushFont(ctx, fontMono)
+    ImGui.PushStyleColor(ctx, ImGui.Col_Text, C.muted)
+    ImGui.TextWrapped(ctx, cfg.attach and ui.preview or "Nothing. Claude will only see what you type.")
     ImGui.PopStyleColor(ctx)
+    ImGui.PopFont(ctx)
     ImGui.EndChild(ctx)
   end
+  ImGui.PopStyleColor(ctx)
+  ImGui.EndPopup(ctx)
 end
 
-local function drawSettingsSection()
-  if not ImGui.CollapsingHeader(ctx, "Settings") then return end
+local function drawSettingsPopup()
+  if not ImGui.BeginPopup(ctx, "settings") then return end
   local changed, value
 
-  ImGui.SetNextItemWidth(ctx, -140)
-  changed, value = ImGui.InputText(ctx, "claude path", cfg.claudePath)
+  smallText(C.muted, "Claude Code command")
+  ImGui.SetNextItemWidth(ctx, 300)
+  changed, value = ImGui.InputText(ctx, "##claudepath", cfg.claudePath)
   if changed then cfg.claudePath = value; setSetting("claude_path", value) end
+  ImGui.SameLine(ctx)
   if ImGui.Button(ctx, "Test") then ui.testResult = testClaude() end
   if ui.testResult ~= "" then
-    ImGui.SameLine(ctx)
-    ImGui.TextWrapped(ctx, ui.testResult)
+    ImGui.PushTextWrapPos(ctx, 380)
+    smallText(ui.testResult:find("^OK") and C.teal or C.error, ui.testResult)
+    ImGui.PopTextWrapPos(ctx)
   end
 
+  ImGui.Spacing(ctx)
+  smallText(C.muted, "Model")
   ImGui.SetNextItemWidth(ctx, 160)
-  if ImGui.BeginCombo(ctx, "model", cfg.model == "" and "default" or cfg.model) then
+  if ImGui.BeginCombo(ctx, "##model", cfg.model == "" and "Claude Code default" or cfg.model) then
     for _, name in ipairs(MODELS) do
-      if ImGui.Selectable(ctx, name == "" and "default" or name, cfg.model == name) then
+      if ImGui.Selectable(ctx, name == "" and "Claude Code default" or name, cfg.model == name) then
         cfg.model = name; setSetting("model", name)
       end
     end
     ImGui.EndCombo(ctx)
   end
-  checkbox("Allow web search", "webSearch", "web_search")
+  checkbox("Let Claude search the web", "webSearch", "web_search")
 
-  ImGui.SetNextItemWidth(ctx, -140)
-  changed, value = ImGui.InputText(ctx, "extra CLI arguments", cfg.extraArgs)
+  ImGui.Spacing(ctx)
+  smallText(C.muted, "Extra command-line arguments")
+  ImGui.SetNextItemWidth(ctx, 380)
+  changed, value = ImGui.InputText(ctx, "##extra", cfg.extraArgs)
   if changed then cfg.extraArgs = value; setSetting("extra_args", value) end
 
-  ImGui.SetNextItemWidth(ctx, 160)
-  changed, value = ImGui.InputText(ctx, "font", ui.fontFamily)
+  ImGui.Spacing(ctx)
+  smallText(C.muted, "Font and size (reopen the panel to apply)")
+  ImGui.SetNextItemWidth(ctx, 220)
+  changed, value = ImGui.InputText(ctx, "##font", ui.fontFamily)
   if changed then ui.fontFamily = value; setSetting("font_family", value) end
   ImGui.SameLine(ctx)
-  ImGui.SetNextItemWidth(ctx, 50)
-  changed, value = ImGui.InputText(ctx, "size (reopen to apply)", ui.fontSize)
+  ImGui.SetNextItemWidth(ctx, 60)
+  changed, value = ImGui.InputText(ctx, "##fontsize", ui.fontSize)
   if changed then
     ui.fontSize = value
     local n = tonumber(value)
     if n and n >= 8 and n <= 40 then setSetting("font_size", math.floor(n)) end
   end
-  ImGui.TextColored(ctx, COL_DIM, "Claude Panel " .. VERSION .. "  |  work folder: " .. workDir)
+
+  ImGui.Spacing(ctx)
+  smallText(C.muted, "Claude Panel " .. VERSION)
+  smallText(C.muted, "Work folder: " .. workDir)
+  ImGui.EndPopup(ctx)
 end
 
-local function drawInput()
-  local availW = ImGui.GetContentRegionAvail(ctx)
-  local changed, value = ImGui.InputTextMultiline(ctx, "##input", chat.input, availW, 70)
-  if changed then chat.input = value end
+local function drawHeader()
+  local label
+  if not cfg.attach then label = "Nothing attached"
+  elseif ui.summary == "" then label = "Attached: project info"
+  else label = "Attached: " .. ui.summary end
 
-  -- Ctrl+Enter sends from anywhere in the window
+  -- A lamp: lit while the selection travels with the message
+  local dl = ImGui.GetWindowDrawList(ctx)
+  local x, y = ImGui.GetCursorScreenPos(ctx)
+  local h = ImGui.GetFrameHeight(ctx)
+  ImGui.DrawList_AddRectFilled(dl, x, y + 3, x + 4, y + h - 3, cfg.attach and C.amber or C.border, 2)
+  ImGui.SetCursorScreenPos(ctx, x + 10, y)
+  if ImGui.Button(ctx, label .. "##attached") then ImGui.OpenPopup(ctx, "context") end
+  if ImGui.IsItemHovered(ctx) then ImGui.SetTooltip(ctx, "Choose what is sent along with each message") end
+  drawContextPopup()
+
+  local newW, setW = buttonWidth("New chat"), buttonWidth("Settings")
+  ImGui.SameLine(ctx)
+  local availW = ImGui.GetContentRegionAvail(ctx)
+  local needed = newW + 8 + setW
+  if availW > needed then ImGui.SetCursorPosX(ctx, ImGui.GetCursorPosX(ctx) + availW - needed) end
+  ImGui.BeginDisabled(ctx, req ~= nil or #chat.messages == 0)
+  if ImGui.Button(ctx, "New chat") then
+    chat.messages = {}
+    chat.sessionId = nil
+    ui.focusInput = true
+  end
+  ImGui.EndDisabled(ctx)
+  ImGui.SameLine(ctx)
+  if ImGui.Button(ctx, "Settings") then ImGui.OpenPopup(ctx, "settings") end
+  drawSettingsPopup()
+end
+
+-- ---------------------------------------------------------------------------
+-- Transcript
+-- ---------------------------------------------------------------------------
+
+-- Reads a ```choices block. Returns {question, multi, options} or nil while
+-- the block is still being written or if it is not usable.
+local function parseChoices(body)
+  local obj = json.decode(body)
+  if type(obj) ~= "table" or type(obj.options) ~= "table" then return nil end
+  local options = {}
+  for _, o in ipairs(obj.options) do
+    if type(o) == "string" and o:find("%S") then options[#options+1] = o end
+  end
+  if #options < 2 then return nil end
+  return {
+    question = type(obj.question) == "string" and obj.question or "",
+    multi = obj.multi == true, options = options, picked = {},
+  }
+end
+
+-- Splits a reply into prose, fenced code (set in monospace) and choice dialogs.
+-- The result is cached on the message, which also keeps a dialog's ticks.
+local function segmentsOf(m, text)
+  if m._segSource == text then return m._segs end
+  local segs, buf, inCode, lang = {}, {}, false, ""
+  local function flush(closed)
+    local body = table.concat(buf, "\n")
+    if inCode and lang == "choices" then
+      local dialog = closed and parseChoices(body) or nil
+      if dialog then segs[#segs+1] = { choices = dialog } end   -- unfinished: show nothing yet
+    elseif inCode or body:find("%S") then
+      segs[#segs+1] = { code = inCode, text = inCode and body or body:gsub("^\n+", ""):gsub("%s+$", "") }
+    end
+    buf = {}
+  end
+  for line in (text .. "\n"):gmatch("(.-)\n") do
+    local fence = line:match("^%s*```%s*(%S*)")
+    if fence then
+      flush(inCode)
+      inCode = not inCode
+      lang = inCode and fence:lower() or ""
+    else
+      buf[#buf+1] = line
+    end
+  end
+  flush(false)
+  m._segSource, m._segs = text, segs
+  return segs
+end
+
+-- Your own message: a raised block with an amber edge, like an item on a track.
+local function drawUserMessage(m)
+  local dl = ImGui.GetWindowDrawList(ctx)
+  local availW = ImGui.GetContentRegionAvail(ctx)
+  local padX, padY, edge = 10, 8, 4
+  local wrapW = math.max(60, availW - edge - padX * 2)
+  local _, textH = ImGui.CalcTextSize(ctx, m.text, nil, nil, false, wrapW)
+  ImGui.PushFont(ctx, fontSmall)
+  local labelH = ImGui.GetTextLineHeight(ctx)
+  ImGui.PopFont(ctx)
+  local blockH = padY + labelH + 4 + textH + padY
+
+  local x, y = ImGui.GetCursorScreenPos(ctx)
+  ImGui.DrawList_AddRectFilled(dl, x, y, x + availW, y + blockH, C.surface, 5)
+  ImGui.DrawList_AddRectFilled(dl, x, y, x + edge, y + blockH, C.amber, 2)
+
+  ImGui.SetCursorScreenPos(ctx, x + edge + padX, y + padY)
+  ImGui.BeginGroup(ctx)
+  smallText(C.amber, m.context and ("You, with " .. m.context) or "You")
+  ImGui.PushTextWrapPos(ctx, ImGui.GetCursorPosX(ctx) + wrapW)
+  ImGui.Text(ctx, m.text)
+  ImGui.PopTextWrapPos(ctx)
+  ImGui.EndGroup(ctx)
+
+  ImGui.SetCursorScreenPos(ctx, x, y + blockH)
+  ImGui.Dummy(ctx, availW, 6)
+end
+
+local function drawCodeBlock(code, id)
+  local dl = ImGui.GetWindowDrawList(ctx)
+  local availW = ImGui.GetContentRegionAvail(ctx)
+  local pad = 8
+  local wrapW = math.max(60, availW - pad * 2)
+  ImGui.PushFont(ctx, fontMono)
+  local _, textH = ImGui.CalcTextSize(ctx, code, nil, nil, false, wrapW)
+  local blockH = pad + textH + pad
+  local x, y = ImGui.GetCursorScreenPos(ctx)
+  ImGui.DrawList_AddRectFilled(dl, x, y, x + availW, y + blockH, C.surfaceLo, 4)
+  ImGui.SetCursorScreenPos(ctx, x + pad, y + pad)
+  ImGui.PushTextWrapPos(ctx, ImGui.GetCursorPosX(ctx) + wrapW)
+  ImGui.Text(ctx, code)
+  ImGui.PopTextWrapPos(ctx)
+  ImGui.PopFont(ctx)
+  ImGui.SetCursorScreenPos(ctx, x, y + blockH)
+  ImGui.Dummy(ctx, availW, 2)
+  ImGui.PushFont(ctx, fontSmall)
+  if ImGui.SmallButton(ctx, "Copy code##" .. id) then ImGui.SetClipboardText(ctx, code) end
+  ImGui.PopFont(ctx)
+end
+
+-- A choice dialog Claude asked for. One click answers a single choice;
+-- a multiple choice is ticked and then sent. Only the newest reply can be
+-- answered; older dialogs stay visible but inert.
+local function drawChoices(dialog, id, active)
+  local availW = ImGui.GetContentRegionAvail(ctx)
+  if dialog.question ~= "" then
+    ImGui.PushFont(ctx, fontBold)
+    ImGui.TextWrapped(ctx, dialog.question)
+    ImGui.PopFont(ctx)
+  end
+  if dialog.answer then
+    smallText(C.amber, "You chose: " .. dialog.answer)
+    return
+  end
+  local answer
+  ImGui.BeginDisabled(ctx, not active)
+  if dialog.multi then
+    local any = false
+    for i, option in ipairs(dialog.options) do
+      local changed, value = ImGui.Checkbox(ctx, option .. "##" .. id .. "_" .. i, dialog.picked[i] == true)
+      if changed then dialog.picked[i] = value end
+      any = any or dialog.picked[i] == true
+    end
+    ImGui.BeginDisabled(ctx, not any)
+    ImGui.PushStyleColor(ctx, ImGui.Col_Button, C.amber)
+    ImGui.PushStyleColor(ctx, ImGui.Col_ButtonHovered, C.amberHi)
+    ImGui.PushStyleColor(ctx, ImGui.Col_ButtonActive, C.amberLo)
+    ImGui.PushStyleColor(ctx, ImGui.Col_Text, C.onAmber)
+    local clicked = ImGui.Button(ctx, "Send choice##" .. id)
+    ImGui.PopStyleColor(ctx, 4)
+    ImGui.EndDisabled(ctx)
+    if clicked then
+      local picked = {}
+      for i, option in ipairs(dialog.options) do
+        if dialog.picked[i] then picked[#picked+1] = option end
+      end
+      answer = table.concat(picked, ", ")
+    end
+  else
+    for i, option in ipairs(dialog.options) do
+      if ImGui.Button(ctx, option .. "##" .. id .. "_" .. i, math.min(availW, 360), 0) then answer = option end
+    end
+  end
+  ImGui.EndDisabled(ctx)
+  if active then smallText(C.muted, "Or type a reply below.") end
+  if answer and active then
+    dialog.answer = answer
+    send(answer)
+    chat.forceScroll = true
+  end
+end
+
+local function drawReply(m, index)
+  local isError = m.role == "error"
+  local text = messageText(m)
+  ImGui.PushFont(ctx, fontBold)
+  ImGui.TextColored(ctx, isError and C.error or C.teal, isError and "Could not get a reply" or "Claude")
+  ImGui.PopFont(ctx)
+  if text ~= "" and not isError then
+    ImGui.SameLine(ctx)
+    ImGui.PushFont(ctx, fontSmall)
+    if ImGui.SmallButton(ctx, "Copy") then ImGui.SetClipboardText(ctx, text) end
+    ImGui.PopFont(ctx)
+  end
+  if isError then
+    ImGui.PushStyleColor(ctx, ImGui.Col_Text, C.error)
+    ImGui.TextWrapped(ctx, text)
+    ImGui.PopStyleColor(ctx)
+  else
+    local active = index == #chat.messages and req == nil
+    for i, seg in ipairs(segmentsOf(m, text)) do
+      if seg.choices then drawChoices(seg.choices, index .. "_" .. i, active)
+      elseif seg.code then drawCodeBlock(seg.text, index .. "_" .. i)
+      else ImGui.TextWrapped(ctx, seg.text) end
+    end
+  end
+  ImGui.Dummy(ctx, 1, 6)
+end
+
+local function drawTranscript(height)
+  if not ImGui.BeginChild(ctx, "transcript", 0, height) then return end
+  -- Follow the reply while it is being written, unless the reader scrolled up
+  local wasAtBottom = ImGui.GetScrollY(ctx) >= ImGui.GetScrollMaxY(ctx) - 24
+
+  if #chat.messages == 0 then
+    ImGui.Dummy(ctx, 1, 12)
+    ImGui.PushStyleColor(ctx, ImGui.Col_Text, C.muted)
+    ImGui.TextWrapped(ctx, "Select tracks, items or notes in REAPER, then ask about them here.")
+    ImGui.Spacing(ctx)
+    ImGui.TextWrapped(ctx, "The selection is described to Claude with each message. " ..
+      "The Attached button above shows exactly what is sent.")
+    ImGui.PopStyleColor(ctx)
+  end
+
+  for i, m in ipairs(chat.messages) do
+    ImGui.PushID(ctx, tostring(i))
+    if m.role == "user" then drawUserMessage(m) else drawReply(m, i) end
+    ImGui.PopID(ctx)
+  end
+
+  if req then
+    local dots = string.rep(".", math.floor(reaper.time_precise() * 2.5) % 4)
+    smallText(C.teal, req.status:gsub("%.+$", "") .. dots)
+  end
+
+  if chat.scrollToBottom then
+    if wasAtBottom or chat.forceScroll then ImGui.SetScrollHereY(ctx, 1.0) end
+    chat.scrollToBottom, chat.forceScroll = false, false
+  end
+  ImGui.EndChild(ctx)
+end
+
+-- ---------------------------------------------------------------------------
+-- Composer: the input and its Send button
+-- ---------------------------------------------------------------------------
+
+local SEND_W = 76
+
+local function drawComposer(inputH)
+  local availW = ImGui.GetContentRegionAvail(ctx)
+  local inputW = math.max(80, availW - SEND_W - 8)
+
+  if ui.focusInput then
+    ImGui.SetKeyboardFocusHere(ctx)
+    ui.focusInput = false
+  end
+  local changed, value = ImGui.InputTextMultiline(ctx, "##input", chat.input, inputW, inputH)
+  if changed then chat.input = value end
+  if chat.input == "" and not ImGui.IsItemActive(ctx) then
+    local x, y = ImGui.GetItemRectMin(ctx)
+    ImGui.DrawList_AddText(ImGui.GetWindowDrawList(ctx), x + 8, y + 5, C.muted, "Ask about the selection")
+  end
+
   local ctrlEnter = ImGui.IsWindowFocused(ctx, ImGui.FocusedFlags_RootAndChildWindows)
     and ImGui.GetKeyMods(ctx) == ImGui.Mod_Ctrl
     and (ImGui.IsKeyPressed(ctx, ImGui.Key_Enter, false) or ImGui.IsKeyPressed(ctx, ImGui.Key_KeypadEnter, false))
 
+  ImGui.SameLine(ctx)
   if req then
-    if ImGui.Button(ctx, "Cancel") then cancelRequest() end
+    if ImGui.Button(ctx, "Stop", SEND_W, inputH) then cancelRequest() end
   else
-    ImGui.BeginDisabled(ctx, not chat.input:find("%S"))
-    if ImGui.Button(ctx, "Send (Ctrl+Enter)") or ctrlEnter then send() end
+    local canSend = chat.input:find("%S") ~= nil
+    ImGui.PushFont(ctx, fontBold)
+    ImGui.PushStyleColor(ctx, ImGui.Col_Button, C.amber)
+    ImGui.PushStyleColor(ctx, ImGui.Col_ButtonHovered, C.amberHi)
+    ImGui.PushStyleColor(ctx, ImGui.Col_ButtonActive, C.amberLo)
+    ImGui.PushStyleColor(ctx, ImGui.Col_Text, C.onAmber)
+    ImGui.BeginDisabled(ctx, not canSend)
+    local clicked = ImGui.Button(ctx, "Send", SEND_W, inputH)
     ImGui.EndDisabled(ctx)
+    ImGui.PopStyleColor(ctx, 4)
+    ImGui.PopFont(ctx)
+    if (clicked or ctrlEnter) and canSend then
+      send()
+      chat.forceScroll = true
+      ui.focusInput = true
+    end
   end
-  ImGui.SameLine(ctx)
-  ImGui.BeginDisabled(ctx, req ~= nil)
-  if ImGui.Button(ctx, "New chat") then
-    chat.messages = {}
-    chat.sessionId = nil
-  end
-  ImGui.EndDisabled(ctx)
-  ImGui.SameLine(ctx)
-  ImGui.TextColored(ctx, COL_DIM, cfg.attach and "selection attached" or "nothing attached")
+  smallText(C.muted, req and "Claude is replying. Stop cancels it." or "Ctrl+Enter sends. Enter adds a line.")
 end
+
+-- ---------------------------------------------------------------------------
 
 local function loop()
   pollRequest()
+  refreshPreview()
 
-  ImGui.PushFont(ctx, font)
-  ImGui.SetNextWindowSize(ctx, 480, 640, ImGui.Cond_FirstUseEver)
+  pushTheme()
+  ImGui.PushFont(ctx, fontBody)
+  ImGui.SetNextWindowSize(ctx, 500, 660, ImGui.Cond_FirstUseEver)
   local visible, open = ImGui.Begin(ctx, "Claude", true)
   if visible then
-    -- Everything below the message list has a fixed height when collapsed;
-    -- the list takes what is left, with a floor so it never disappears.
+    local lineH = ImGui.GetTextLineHeight(ctx)
+    local inputH = lineH * 3 + 12
+    -- composer = input + hint line + the spacing around them
+    local composerH = inputH + lineH + 16
+    drawHeader()
+    ImGui.Dummy(ctx, 1, 2)
     local _, availH = ImGui.GetContentRegionAvail(ctx)
-    drawMessages(math.max(120, availH - 190))
-    drawInput()
-    drawContextSection()
-    drawSettingsSection()
+    drawTranscript(math.max(80, availH - composerH))
+    drawComposer(inputH)
     ImGui.End(ctx)
   end
   ImGui.PopFont(ctx)
+  popTheme()
 
   if open then
     reaper.defer(loop)

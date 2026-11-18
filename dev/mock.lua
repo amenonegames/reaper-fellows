@@ -1,18 +1,27 @@
 -- Mock of REAPER + ReaImGui, enough to run ClaudePanel.lua headless on Linux.
-local M = { frames = {}, press = {}, ext = {}, input = nil, opened = true }
+local M = { frames = {}, press = {}, tick = {}, ext = {}, input = nil, opened = true, drawn = {} }
+local function visible(label) return (label:gsub("##.*$", "")) end
 local here = arg[0]:match("^(.*)/[^/]*$") or "."
 local function now() return os.gettimeofday and os.gettimeofday() or os.time() end
 
 local imgui = setmetatable({}, { __index = function(t, k)
-  if k:match("^%u%a*_") then return 1 end           -- constants: Col_Text, Mod_Ctrl ...
+  if k:match("^%u%a*_") and not k:match("^DrawList_") then return 1 end   -- constants: Col_Text, Mod_Ctrl ...
   local fns = {
     Begin = function() return true, M.opened end,
     BeginChild = function() return true end, CollapsingHeader = function() return true end,
     BeginCombo = function() return true end, Selectable = function() return false end,
-    Checkbox = function(_, _, v) return false, v end,
+    Checkbox = function(_, label, v) local l = visible(label); if M.tick[l] then M.tick[l] = nil; return true, true end return false, v end,
     InputText = function(_, _, buf) return false, buf end,
     InputTextMultiline = function(_, _, buf) if M.input then local v = M.input; M.input = nil; return true, v end return false, buf end,
-    Button = function(_, label) if M.press[label] then M.press[label] = nil; return true end return false end,
+    Button = function(_, label) local l = visible(label); M.drawn[l] = true; if M.press[l] then M.press[l] = nil; return true end return false end,
+    Text = function(_, t) M.drawn[t] = true end, TextWrapped = function(_, t) M.drawn[t] = true end,
+    TextColored = function(_, _, t) M.drawn[t] = true end,
+    CalcTextSize = function() return 100, 16 end, GetCursorScreenPos = function() return 0, 0 end,
+    GetItemRectMin = function() return 0, 0 end, GetTextLineHeight = function() return 16 end,
+    GetFrameHeight = function() return 26 end, GetCursorPosX = function() return 0 end,
+    GetWindowDrawList = function() return {} end, BeginPopup = function() return true end,
+    GetScrollY = function() return 0 end, GetScrollMaxY = function() return 0 end,
+    IsItemActive = function() return false end, IsItemHovered = function() return false end,
     GetContentRegionAvail = function() return 460, 600 end,
     GetKeyMods = function() return 0 end, IsKeyPressed = function() return false end,
     IsWindowFocused = function() return true end,

@@ -5,6 +5,18 @@ if [ "$1" = "--version" ]; then echo "9.9.9 (Fake Claude)"; exit 0; fi
 printf '%s\n' "$*" > "$here/last_args.txt"
 cat > "$here/last_prompt.txt"
 emit() { printf '%s\n' "$1"; sleep 0.12; }
+if grep -q ASKME "$here/last_prompt.txt"; then
+  emit '{"type":"system","subtype":"init","session_id":"11111111-2222-3333-4444-555555555555"}'
+  emit '{"type":"assistant","message":{"content":[{"type":"text","text":"Which part?\n\n```choices\n{\"question\": \"Which section?\", \"multi\": false, \"options\": [\"Verse\", \"Chorus\", \"Bridge\"]}\n```"}]}}'
+  emit '{"type":"result","subtype":"success","is_error":false,"result":"x","session_id":"11111111-2222-3333-4444-555555555555"}'
+  exit 0
+fi
+if grep -q ASKMULTI "$here/last_prompt.txt"; then
+  emit '{"type":"system","subtype":"init","session_id":"11111111-2222-3333-4444-555555555555"}'
+  emit '{"type":"assistant","message":{"content":[{"type":"text","text":"```choices\n{\"question\": \"\u3069\u308c\u3092\u8abf\u3079\u307e\u3059\u304b\uff1f\", \"multi\": true, \"options\": [\"EQ\", \"Comp\", \"Reverb\"]}\n```"}]}}'
+  emit '{"type":"result","subtype":"success","is_error":false,"result":"x","session_id":"11111111-2222-3333-4444-555555555555"}'
+  exit 0
+fi
 emit '{"type":"active_goal","session_id":"s","uuid":"u","value":null}'
 emit '{"type":"system","subtype":"init","session_id":"11111111-2222-3333-4444-555555555555","cwd":"/x"}'
 emit '{"type":"stream_event","event":{"type":"message_start","message":{}}}'
