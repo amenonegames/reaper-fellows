@@ -13,20 +13,33 @@ Claude can answer about the project in front of you.
 It talks to Claude through the Claude Code command line (claude -p), signed in
 with your Claude plan. No API key is used.
 
+With Node.js installed, Claude can also act on the project: it runs ReaScript
+in REAPER through an MCP server shipped with the panel. Every script is one
+undo step. This can be switched off, or set to ask before each change.
+
 ## Requirements
 
 - ReaImGui 0.9 or newer
 - Claude Code installed and signed in
+- Node.js 16 or newer, for acting on the project
 
 ## Notes
 
-- 0.1 is read-only: Claude cannot change the project
 - Send button or Ctrl+Enter sends
 - Press Settings, then Test, to check that the claude command is found
 - Claude can show choice dialogs (buttons or checkboxes)
         ]]></description>
         <link rel="website">https://github.com/amenonegames/reaper-fellows</link>
       </metadata>
+      <version name="0.2.0" author="amenonegames" time="2026-11-18T09:32:47Z">
+        <changelog><![CDATA[
+- Claude can act on the project: an MCP server (needs Node.js) with get_selection, find_api, run_lua and ask_user
+- Every script is one undo step; the newest one has an Undo button in the panel
+- Settings: switch edits off, or ask before each change
+        ]]></changelog>
+        <source main="main">https://github.com/amenonegames/reaper-fellows/raw/83dc6ccdd2639d959796314e7d4e8e2964f506e2/ClaudePanel.lua</source>
+        <source file="reaper_mcp_server.js">https://github.com/amenonegames/reaper-fellows/raw/83dc6ccdd2639d959796314e7d4e8e2964f506e2/reaper_mcp_server.js</source>
+      </version>
       <version name="0.1.1" author="amenonegames" time="2026-11-18T09:15:57Z">
         <changelog><![CDATA[
 - Redesigned window: header showing what is attached, transcript, composer with a Send button
