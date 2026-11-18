@@ -9,5 +9,14 @@ Use absolute paths, as above. `fakeclaude` stands in for the Claude Code CLI and
 streams a canned reply; pass the path of the real `claude` instead to check that
 the command line the panel builds is accepted.
 
-This covers context building, the request lifecycle and stream parsing. It does
-not cover the real ReaImGui rendering or the Windows batch launcher.
+Acting on the project is checked end to end with the real MCP server:
+
+    lua "$(pwd)/dev/run_mcp_test.lua"            # scripts run straight away
+    lua "$(pwd)/dev/run_mcp_test.lua" confirm    # ask-first mode
+
+`fakeclaude_mcp.js` plays the CLI here: it starts `reaper_mcp_server.js` from the
+config the panel wrote, calls every tool and reports what came back. Needs Node.js.
+
+This covers context building, the request lifecycle, stream parsing, the bridge
+and tool execution. It does not cover the real ReaImGui rendering, the Windows
+batch launcher, or what the real ReaScript API does with a script.

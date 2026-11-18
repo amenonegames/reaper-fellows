@@ -11,10 +11,12 @@ about the project in front of you without describing it first.
 It talks to Claude through the [Claude Code](https://claude.com/claude-code) command
 line (`claude -p`), signed in with your Claude plan. No API key is involved.
 
-**Status: 0.1.1.** 0.1.0 was confirmed working in REAPER on Windows. The 0.1.1
-redesign and the choice dialogs are checked against a mocked REAPER only (see `dev/`).
+**Status: 0.2.0.** The chat panel (0.1.x) is confirmed working in REAPER on Windows.
+Acting on the project (0.2.0) is checked end to end against a mocked REAPER and the
+real MCP server, and the real Claude Code CLI connects to that server -- but it has
+not yet run inside a real REAPER. Save your project before trying it.
 
-### What 0.1 does
+### What it does
 
 - Chat with Claude; replies stream in as they are written, and the conversation
   continues across messages until you press **New chat**
@@ -28,14 +30,46 @@ redesign and the choice dialogs are checked against a mocked REAPER only (see `d
   message. You can always type a reply instead
 - Code in replies is set in monospace with its own Copy button
 - Optional web search
-- Read-only: Claude cannot change the project. Operating REAPER through MCP is
-  planned for 0.2
+
+### Acting on the project
+
+With Node.js installed, Claude can also work in the project. The panel ships a small
+MCP server (`reaper_mcp_server.js`) that Claude Code starts for each message; it gives
+Claude four tools:
+
+| Tool | What it does |
+| --- | --- |
+| `get_selection` | Reads the project state again (after a change, for example) |
+| `find_api` | Looks up which ReaScript functions exist in your REAPER, extensions included |
+| `run_lua` | Runs a ReaScript (Lua) in REAPER. This is how anything gets changed |
+| `ask_user` | Asks you a question in the panel and waits, with buttons or checkboxes |
+
+How edits are handled:
+
+- **Each script is one undo step**, named `Claude: <what it does>`. Ctrl+Z takes it
+  back; the newest script also has an **Undo** button in the panel for as long as
+  it is still the latest undo step
+- Scripts run **without asking** by default. **Settings > Ask me before each change**
+  shows each script with **Run** / **Skip** first
+- **Settings > Let Claude change the project** turns all of this off; the panel is
+  then read-only, as in 0.1
+- Every script that ran is listed in the conversation with **Show script**
+- The line under the input always says which mode is active: `Edits: on`,
+  `Edits: ask first` or `Edits: off`
+
+Scripts run on REAPER's main thread, are stopped after 10 seconds, and have no `io`,
+`os.execute`, `require` or `reaper.ExecProcess`. That keeps a script from wandering
+into the file system by accident; it is not a security boundary. The full ReaScript
+API is available to them, so a script can delete or overwrite things in the project.
+Undo is the safety net -- and a saved project.
 
 ### Requirements
 
 - REAPER 7 (6.x probably works)
 - [ReaImGui](https://github.com/cfillion/reaimgui) 0.9 or newer -- install it from ReaPack
 - Claude Code installed and signed in: running `claude` in a terminal must work
+- [Node.js](https://nodejs.org/) 16 or newer, for acting on the project (the chat
+  works without it)
 
 ### Install
 
@@ -46,7 +80,8 @@ redesign and the choice dialogs are checked against a mocked REAPER only (see `d
 
 Press **Settings** in the panel, then **Test**. It should print the Claude Code
 version. If it does not, put the full path of the `claude` executable in
-**claude path** (on Windows, `where claude` in a terminal prints it).
+**Claude Code command** (on Windows, `where claude` in a terminal prints it). The
+second **Test** button, under *Acting on the project*, does the same for `node`.
 
 ### Usage
 
@@ -57,7 +92,9 @@ Select something in REAPER, type a question, press **Send** or **Ctrl+Enter**.
 - Usage counts against your Claude plan's limits, like any other Claude Code use.
   A large selection makes each message bigger.
 - Requests run in `<REAPER resource path>/Data/ClaudePanel`, where the prompt and
-  the reply of the latest request are kept as plain files.
+  the reply of the latest request are kept as plain files. Tool calls travel through
+  the `bridge` folder inside it: the MCP server cannot reach REAPER itself, so it
+  writes each call as a file and the panel answers with another.
 - Typing Japanese (or any IME input) on Windows shows the text being composed in a
   separate box until it is confirmed. That box is drawn by ReaImGui, which hands
   composition to the system IME window; the panel cannot draw it inline.

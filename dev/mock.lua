@@ -17,7 +17,7 @@ local imgui = setmetatable({}, { __index = function(t, k)
     Text = function(_, t) M.drawn[t] = true end, TextWrapped = function(_, t) M.drawn[t] = true end,
     TextColored = function(_, _, t) M.drawn[t] = true end,
     CalcTextSize = function() return 100, 16 end, GetCursorScreenPos = function() return 0, 0 end,
-    GetItemRectMin = function() return 0, 0 end, GetTextLineHeight = function() return 16 end,
+    GetItemRectMin = function() return 0, 0 end, GetItemRectMax = function() return 0, 0 end, GetTextLineHeight = function() return 16 end,
     GetFrameHeight = function() return 26 end, GetCursorPosX = function() return 0 end,
     GetWindowDrawList = function() return {} end, BeginPopup = function() return true end,
     GetScrollY = function() return 0 end, GetScrollMaxY = function() return 0 end,
@@ -75,6 +75,9 @@ local R = {
   MIDIEditor_GetActive = function() return M.editor end, MIDIEditor_GetTake = function() return "MIDITAKE" end,
   ValidatePtr = function() return true end, GetMediaItemTake_Item = function() return "I0" end,
   IsMediaItemSelected = function() return true end,
+  Undo_BeginBlock = function() M.undo = (M.undo or 0) + 1 end, Undo_EndBlock = function(name) M.lastUndo = name end,
+  PreventUIRefresh = function() end, UpdateArrange = function() end,
+  Undo_CanUndo2 = function() return M.lastUndo end, Undo_DoUndo2 = function() M.undone = M.lastUndo; M.lastUndo = nil end,
   CountProjectMarkers = function() return 2, 1, 1 end,
   EnumProjectMarkers = function(i) if i == 0 then return 1, false, 0, 0, "Intro", 1 end return 2, true, 2, 10, "Verse", 1 end,
 }
