@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<index version="1" name="reaper-fellows">
+  <category name="Claude">
+    <reapack name="ClaudePanel.lua" type="script" desc="Claude Panel - ask Claude about the current selection">
+      <metadata>
+        <description><![CDATA[
+# Claude Panel
+
+A dockable chat window inside REAPER. Each message carries a text description
+of what is selected (tracks, items, MIDI notes, time selection, markers), so
+Claude can answer about the project in front of you.
+
+It talks to Claude through the Claude Code command line (claude -p), signed in
+with your Claude plan. No API key is used.
+
+## Requirements
+
+- ReaImGui 0.9 or newer
+- Claude Code installed and signed in
+
+## Notes
+
+- 0.1 is read-only: Claude cannot change the project
+- Ctrl+Enter sends
+- Open Settings and press Test to check that the claude command is found
+        ]]></description>
+        <link rel="website">https://github.com/amenonegames/reaper-fellows</link>
+      </metadata>
+      <version name="0.1.0" author="amenonegames" time="2026-11-18T08:51:18Z">
+        <changelog><![CDATA[
+First release: chat panel with the REAPER selection attached to each message.
+        ]]></changelog>
+        <source main="main">https://github.com/amenonegames/reaper-fellows/raw/b0abf50872e48934709a8d8cc6ad6b94736e2d6d/ClaudePanel.lua</source>
+      </version>
+    </reapack>
+  </category>
+</index>
