@@ -1,4 +1,4 @@
--- Checks for ChordGuide: chord name parsing and overlay geometry.
+-- Checks for ChordGuide: chord name parsing, settings and overlay geometry.
 -- REAPER and js_ReaScriptAPI are mocked. Usage (absolute path):
 --   lua "$(pwd)/dev/run_chordguide_test.lua"
 local root = arg[0]:match('^(.*)[\\/]dev[\\/][^\\/]*$')
@@ -14,7 +14,7 @@ local function Check(cond, msg)
 end
 
 local fills = {}
-local state = {time = 0}
+local state = {time = 0, cursor = 1, ext = {}}
 local items = {
     {0, 2, 'CM7 - I'}, {2, 2, 'Am7/G'}, {4, 2, 'F6/9'}, {6, 2, 'G7b9(no5)'},
     {8, 2, 'Chorus'},
@@ -27,7 +27,14 @@ local chunk = '<ITEM\nNAME x\n<SOURCE MIDI\nE 0 90 3c 60\n' ..
     'VELLANE -1 120 0\nVELLANE 1 80 0\n>\n>\n'
 
 reaper = setmetatable({
-    GetExtState = function() return '' end,
+    GetExtState = function(section, key)
+        return state.ext[section .. '/' .. key] or ''
+    end,
+    SetExtState = function(section, key, value)
+        state.ext[section .. '/' .. key] = value
+    end,
+    GetPlayState = function() return 0 end,
+    GetCursorPosition = function() return state.cursor end,
     CountTracks = function() return 1 end,
     GetTrack = function() return 'TRACK' end,
     GetTrackName = function() return true, 'Chords' end,
@@ -61,16 +68,18 @@ reaper = setmetatable({
     GetItemStateChunk = function() return true, chunk end,
     GetMediaItemTakeInfo_Value = function() return 0 end,
     JS_Window_GetClientSize = function(view)
-        if view == 'child1003' then return true, 128, 800 end
+        if view == 'child1003' then return true, 150, 800 end
         return true, 1000, 800
     end,
     MIDI_GetScale = function() return true, 0, 0xAB5 end,
     GetProjectStateChangeCount = function() return 1 end,
-    JS_LICE_CreateBitmap = function() return 'BITMAP' end,
+    -- Bitmaps are named after their size: 150 px wide = keyboard
+    JS_LICE_CreateBitmap = function(_, w) return w == 150 and 'keys' or 'notes' end,
     JS_LICE_DestroyBitmap = function() end,
-    JS_LICE_Clear = function() fills = {} end,
-    JS_LICE_FillRect = function(_, x, y, w, h, color)
-        fills[#fills + 1] = {x = x, y = y, w = w, h = h, color = color}
+    JS_LICE_Clear = function(bitmap) fills[bitmap] = {} end,
+    JS_LICE_FillRect = function(bitmap, x, y, w, h, color)
+        local list = fills[bitmap]
+        list[#list + 1] = {x = x, y = y, w = w, h = h, color = color}
     end,
     JS_Window_InvalidateRect = function() end,
     MIDI_GetProjTimeFromPPQPos = function(_, ppq) return ppq / 1920 end,
@@ -146,27 +155,72 @@ Check(CG.GetTargetPitch(64, c_major, 'up') == 67, 'up from chord tone')
 -- 4. Unparseable names are not used as chords
 Check(#CG.GetChordSegments(0, 100) == 4, 'segment count')
 
--- 5. Overlay geometry (1000 x 800 view, ruler 62 px, lanes 200 px)
+-- 5. Settings changed by actions
+Check(CG.GetDisplayMode() == 'keys', 'default display mode')
+Check(CG.CycleDisplayMode() == 'notes', 'cycle to notes')
+Check(CG.CycleDisplayMode() == 'both', 'cycle to both')
+Check(CG.Nudge(1) == 1 and CG.Nudge(-1) == 0, 'nudge')
+Check(CG.GetChordAt(1).name == 'CM7', 'chord at 1 s')
+Check(CG.GetChordAt(2).name == 'Am7/G', 'chord at boundary')
+Check(CG.GetChordAt(9) == nil, 'no chord at 9 s')
+
+-- 6. Overlay geometry (ruler 80 px, CC lanes 200 px, rows 12 px,
+--    top row = pitch 72), display mode 'both'
 dofile(dir .. 'ChordGuide.lua')
 state.main()
-Check(#fills > 0, 'nothing was drawn')
-local min_y, max_y = math.huge, 0
-local widths = {}
-for _, fill in ipairs(fills) do
-    min_y = math.min(min_y, fill.y)
-    max_y = math.max(max_y, fill.y + fill.h)
-    widths[fill.x .. '+' .. fill.w] = true
-end
-Check(min_y == 62, 'bands start below the ruler, got ' .. min_y)
-Check(max_y == 600, 'bands end above the CC lanes, got ' .. max_y)
--- Chords last 2 s = 3840 ppq = 384 px, the view ends at 1000 px
-Check(widths['0+384'] and widths['384+384'] and widths['768+232'],
-    'chord band positions')
-Check(widths['0+1000'], 'scale bands span the view')
 
-local prev_fills = fills
+local function Summarize(list)
+    local sum = {min_y = math.huge, max_y = 0, spans = {}, rows = {}}
+    for _, fill in ipairs(list or {}) do
+        sum.min_y = math.min(sum.min_y, fill.y)
+        sum.max_y = math.max(sum.max_y, fill.y + fill.h)
+        sum.spans[fill.x .. '+' .. fill.w] = true
+        sum.rows[fill.y] = fill.color
+    end
+    return sum
+end
+
+local notes = Summarize(fills.notes)
+Check(notes.min_y == 80, 'bands start below the ruler, got ' .. notes.min_y)
+Check(notes.max_y == 600, 'bands end above the CC lanes, got ' .. notes.max_y)
+-- Chords last 2 s = 3840 ppq = 384 px, the view ends at 1000 px
+Check(notes.spans['0+384'] and notes.spans['384+384'] and
+    notes.spans['768+232'], 'chord band positions')
+Check(notes.spans['0+1000'], 'scale bands span the view')
+
+-- Keyboard, cursor at 1 s = CM7: C5 is the top row, B4 the next one
+local keys = Summarize(fills.keys)
+local root_color, chord_color, scale_color = 0x9E9E4B10, 0x7A0E4A7A, 0x330A2715
+Check(keys.spans['0+150'], 'key bands span the keyboard')
+Check(keys.rows[80] == root_color, 'C5 is drawn as root')
+Check(keys.rows[92] == chord_color, 'B4 is drawn as chord tone')
+Check(keys.rows[104] == nil, 'Bb4 is not drawn')
+Check(keys.rows[116] == scale_color, 'A4 is drawn as scale tone')
+Check(keys.max_y == 600, 'key bands end above the CC lanes')
+
+-- Nothing is redrawn without a change
+local prev_keys, prev_notes = fills.keys, fills.notes
 state.main()
-Check(fills == prev_fills, 'redraw without a change')
+Check(fills.keys == prev_keys and fills.notes == prev_notes,
+    'redraw without a change')
+
+-- Moving the cursor to Am7/G redraws the keyboard only
+state.cursor = 3
+state.main()
+Check(fills.keys ~= prev_keys and fills.notes == prev_notes,
+    'cursor move redraws keyboard only')
+keys = Summarize(fills.keys)
+Check(keys.rows[80] == chord_color, 'C5 is a chord tone of Am7')
+Check(keys.rows[116] == root_color, 'A4 is the root of Am7')
+
+-- Nudging moves the rows, display mode 'keys' clears the note area
+CG.Nudge(3)
+CG.CycleDisplayMode()
+Check(CG.GetDisplayMode() == 'keys', 'cycle back to keys')
+state.main()
+keys = Summarize(fills.keys)
+Check(keys.min_y == 83, 'nudge moves the rows, got ' .. keys.min_y)
+Check(#fills.notes == 0, 'note area is cleared in keys mode')
 state.exit()
 
 if failures > 0 then
