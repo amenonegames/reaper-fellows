@@ -57,4 +57,46 @@ First release: chat panel with the REAPER selection attached to each message.
       </version>
     </reapack>
   </category>
+  <category name="ChordGuide">
+    <reapack name="ChordGuide.lua" type="script" desc="ChordGuide - Highlight chord tones in MIDI editor">
+      <metadata>
+        <description><![CDATA[
+# ChordGuide
+
+Shows the chord tones of your chord progression as colored bands in the MIDI
+editor piano roll, and moves selected notes onto them. Plain ReaScript; it does
+not use Claude.
+
+Chords are read from the chord track ("Chords") or from project regions, in the
+notation of FeedTheCat's Lil Chordbox. With key snap on, the scale tones get a
+faint band as well.
+
+0.1.0 has been checked against a mocked REAPER only. The band positions rest on
+assumptions about the MIDI editor layout; settings to correct them are at the
+top of ChordGuide_lib.lua.
+
+## Requirements
+
+- js_ReaScriptAPI
+
+## Actions
+
+- ChordGuide.lua: starts the bands; run it again to stop
+- Move selected notes to chord tone above / below
+- Snap selected notes to nearest chord tone
+        ]]></description>
+        <link rel="website">https://github.com/amenonegames/reaper-fellows</link>
+      </metadata>
+      <version name="0.1.0" author="amenonegames" time="2026-11-20T14:42:01Z">
+        <changelog><![CDATA[
+First release: chord tone and scale bands in the piano roll, and three actions that move selected notes onto chord tones.
+        ]]></changelog>
+        <source main="main midi_editor" file="ChordGuide.lua">https://github.com/amenonegames/reaper-fellows/raw/990f27e8e0caca2e2abf7f65b0398fcee509d428/ChordGuide/ChordGuide.lua</source>
+        <source file="ChordGuide_lib.lua">https://github.com/amenonegames/reaper-fellows/raw/990f27e8e0caca2e2abf7f65b0398fcee509d428/ChordGuide/ChordGuide_lib.lua</source>
+        <source main="midi_editor" file="ChordGuide - Move selected notes to chord tone above.lua">https://github.com/amenonegames/reaper-fellows/raw/990f27e8e0caca2e2abf7f65b0398fcee509d428/ChordGuide/ChordGuide%20-%20Move%20selected%20notes%20to%20chord%20tone%20above.lua</source>
+        <source main="midi_editor" file="ChordGuide - Move selected notes to chord tone below.lua">https://github.com/amenonegames/reaper-fellows/raw/990f27e8e0caca2e2abf7f65b0398fcee509d428/ChordGuide/ChordGuide%20-%20Move%20selected%20notes%20to%20chord%20tone%20below.lua</source>
+        <source main="midi_editor" file="ChordGuide - Snap selected notes to nearest chord tone.lua">https://github.com/amenonegames/reaper-fellows/raw/990f27e8e0caca2e2abf7f65b0398fcee509d428/ChordGuide/ChordGuide%20-%20Snap%20selected%20notes%20to%20nearest%20chord%20tone.lua</source>
+      </version>
+    </reapack>
+  </category>
 </index>

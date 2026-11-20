@@ -116,8 +116,7 @@ independent of Claude Panel: plain ReaScript, no Claude involved.
 **Status: 0.1.0, not yet run inside a real REAPER.** Chord name parsing and the band
 geometry are checked against a mocked REAPER (`dev/run_chordguide_test.lua`). The
 pixel positions rest on assumptions about the MIDI editor layout (see
-[Calibration](#calibration)), so expect to adjust them. It is not in the ReaPack
-index yet.
+[Calibration](#calibration)), so expect to adjust them.
 
 ### What it does
 
@@ -150,19 +149,20 @@ inversions (`Am7/G`) and scale degrees (`Am7 - vi`), plus common hand-typed spel
 
 ### Install
 
-Copy the `ChordGuide` folder into REAPER's `Scripts` folder. In the action list,
-choose the **MIDI Editor** section and load these with **New action > Load
-ReaScript**:
+1. Import this repository in ReaPack, as described for
+   [Claude Panel](#install), if you have not already
+2. **Extensions > ReaPack > Browse packages**, search "ChordGuide", install
+3. In the action list, the **MIDI Editor** section now has:
+   - **Script: ChordGuide.lua** -- starts the bands; run it again to stop
+   - the three **Script: ChordGuide - ...** actions
 
-- `ChordGuide.lua` -- starts the bands; run it again to stop
-- the three `ChordGuide - ... .lua` actions
-
-`ChordGuide_lib.lua` must stay next to them; it is not an action.
+ReaPack puts the files in `Scripts/reaper-fellows/ChordGuide/`.
 
 ### Calibration
 
 Settings are at the top of `ChordGuide_lib.lua` (`CG.config`): colors, the chord
-source, and pixel corrections.
+source, and pixel corrections. A ReaPack update of ChordGuide overwrites that file,
+so note your values.
 
 - Bands shifted vertically: set `ruler_height` (assumed 62 px at 100 % scaling) or
   `y_offset`
