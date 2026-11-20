@@ -2,6 +2,11 @@
 
 Tools that bring Claude into [REAPER](https://www.reaper.fm/).
 
+| Tool | Folder | What it is |
+| --- | --- | --- |
+| [Claude Panel](#claude-panel) | repository root | Chat with Claude inside REAPER, and let it act on the project |
+| [ChordGuide](#chordguide) | [`ChordGuide/`](ChordGuide) | Chord tone guides and snapping in the MIDI editor. Plain ReaScript; does not use Claude |
+
 ## Claude Panel
 
 A dockable chat window inside REAPER. Each message carries a text description of
@@ -101,6 +106,79 @@ Select something in REAPER, type a question, press **Send** or **Ctrl+Enter**.
 - If Japanese text shows as boxes, set **font** in Settings to a font that has the
   glyphs (for example `Yu Gothic UI`) and reopen the panel.
 - macOS and Linux code paths exist but are untested.
+
+## ChordGuide
+
+Shows the chord tones of your chord progression as colored bands in the MIDI editor
+piano roll, and moves notes onto them. It lives in [`ChordGuide/`](ChordGuide) and is
+independent of Claude Panel: plain ReaScript, no Claude involved.
+
+**Status: 0.1.0, not yet run inside a real REAPER.** Chord name parsing and the band
+geometry are checked against a mocked REAPER (`dev/run_chordguide_test.lua`). The
+pixel positions rest on assumptions about the MIDI editor layout (see
+[Calibration](#calibration)), so expect to adjust them. It is not in the ReaPack
+index yet.
+
+### What it does
+
+- **Bands per chord**: for each chord's time range, the root is drawn in orange and
+  the other chord tones in blue, across all octaves
+- **Scale**: if key snap is on in the MIDI editor, its scale tones get a faint band
+- **Three actions** for selected notes: move to the chord tone above, to the chord
+  tone below, or snap to the nearest one (a tie goes down). Each note uses the chord
+  it overlaps the most, not the cursor position
+
+### Where chords come from
+
+Chords are read in the notation of FeedTheCat's
+[Lil Chordbox](https://github.com/iliaspoulakis/Reaper-Tools), which can write the
+chords of a MIDI item to a chord track or to project regions:
+
+1. the chord track -- a track named `Chords` (or the name set in Lil Chordbox) with
+   empty items whose notes hold the chord name
+2. project regions named after chords, if there is no chord track with items
+
+Both of Lil Chordbox's notation styles are understood (`CM7` / `Cmaj7`), with
+inversions (`Am7/G`) and scale degrees (`Am7 - vi`), plus common hand-typed spellings
+(`C△7`, `Dm7-5`, `Cadd9`). Names that are not chords are ignored.
+
+### Requirements
+
+- REAPER 7 (6.x probably works)
+- [js_ReaScriptAPI](https://github.com/juliansader/js_ReaScriptAPI) -- install it
+  from ReaPack
+
+### Install
+
+Copy the `ChordGuide` folder into REAPER's `Scripts` folder. In the action list,
+choose the **MIDI Editor** section and load these with **New action > Load
+ReaScript**:
+
+- `ChordGuide.lua` -- starts the bands; run it again to stop
+- the three `ChordGuide - ... .lua` actions
+
+`ChordGuide_lib.lua` must stay next to them; it is not an action.
+
+### Calibration
+
+Settings are at the top of `ChordGuide_lib.lua` (`CG.config`): colors, the chord
+source, and pixel corrections.
+
+- Bands shifted vertically: set `ruler_height` (assumed 62 px at 100 % scaling) or
+  `y_offset`
+- Bands shifted horizontally: `x_offset`
+- Bands lag behind scrolling: lower `poll_interval`
+
+### Limits
+
+- Bands are drawn only in the piano roll with **all note rows shown**. With unused
+  rows hidden, or in other editor modes, they are switched off
+- Regions named like a section letter (`A`, `B`) read as chords. Use the chord track
+  to avoid this
+- Solfege note names (`Do`, `Re`) are not supported
+
+The chord name table and the way the editor view is read come from Lil Chordbox and
+MIDI Editor Magic (MIT License, Copyright (c) 2020 iliaspoulakis).
 
 ## License
 
