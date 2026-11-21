@@ -109,20 +109,26 @@ Select something in REAPER, type a question, press **Send** or **Ctrl+Enter**.
 
 ## ChordGuide
 
-Shows the chord tones of your chord progression as colored bands in the MIDI editor
-piano roll, and moves notes onto them. It lives in [`ChordGuide/`](ChordGuide) and is
-independent of Claude Panel: plain ReaScript, no Claude involved.
+Shows the chord tones of your chord progression in the MIDI editor -- on the piano
+keyboard, as bands in the note area, or both -- and moves notes onto them. It lives
+in [`ChordGuide/`](ChordGuide) and is independent of Claude Panel: plain ReaScript,
+no Claude involved.
 
-**Status: 0.1.0, not yet run inside a real REAPER.** Chord name parsing and the band
-geometry are checked against a mocked REAPER (`dev/run_chordguide_test.lua`). The
-pixel positions rest on assumptions about the MIDI editor layout (see
-[Calibration](#calibration)), so expect to adjust them.
+**Status: 0.2.0.** The note area bands (0.1.0) were seen working in REAPER 7 on
+Windows, 8 pixels too high; 0.2.0 corrects the ruler height for that setup. The
+keyboard display is new in 0.2.0 and is checked against a mocked REAPER only
+(`dev/run_chordguide_test.lua`). The ruler height still depends on your REAPER
+setup, see [Calibration](#calibration).
 
 ### What it does
 
-- **Bands per chord**: for each chord's time range, the root is drawn in orange and
-  the other chord tones in blue, across all octaves
-- **Scale**: if key snap is on in the MIDI editor, its scale tones get a faint band
+- **Keyboard** (default): the keys of the chord at the play cursor, or at the edit
+  cursor when stopped, are tinted -- root in orange, the other chord tones in blue,
+  across all octaves
+- **Note area**: the same colors as bands over each chord's time range
+- **Scale**: if key snap is on in the MIDI editor, its scale tones are tinted as well
+  (green on the keyboard, a faint band in the note area)
+- **Cycle display** action: switches between keyboard, note area and both
 - **Three actions** for selected notes: move to the chord tone above, to the chord
   tone below, or snap to the nearest one (a tie goes down). Each note uses the chord
   it overlaps the most, not the cursor position
@@ -153,26 +159,36 @@ inversions (`Am7/G`) and scale degrees (`Am7 - vi`), plus common hand-typed spel
    [Claude Panel](#install), if you have not already
 2. **Extensions > ReaPack > Browse packages**, search "ChordGuide", install
 3. In the action list, the **MIDI Editor** section now has:
-   - **Script: ChordGuide.lua** -- starts the bands; run it again to stop
-   - the three **Script: ChordGuide - ...** actions
+   - **Script: ChordGuide.lua** -- starts the display; run it again to stop
+   - **Script: ChordGuide - Cycle display (keyboard, note area, both).lua**
+   - the three note actions (**Move selected notes to chord tone above** / **below**,
+     **Snap selected notes to nearest chord tone**)
+   - **Nudge guides up** / **down by 1 pixel**
 
 ReaPack puts the files in `Scripts/reaper-fellows/ChordGuide/`.
 
 ### Calibration
 
-Settings are at the top of `ChordGuide_lib.lua` (`CG.config`): colors, the chord
-source, and pixel corrections. A ReaPack update of ChordGuide overwrites that file,
-so note your values.
+The colored rows are placed from the height of the ruler above the note rows, which
+REAPER does not report. The default, 80 pixels, fits REAPER 7 on Windows at 100 %
+scaling with one region/marker lane in the ruler. If the colors sit above or below
+the rows they belong to:
 
-- Bands shifted vertically: set `ruler_height` (assumed 62 px at 100 % scaling) or
-  `y_offset`
-- Bands shifted horizontally: `x_offset`
-- Bands lag behind scrolling: lower `poll_interval`
+- run **Nudge guides up** / **down by 1 pixel** until they fit. The correction is
+  stored in REAPER, applies at once, and survives updates
+- for a large difference (other UI scaling, more ruler lanes), set `ruler_height`
+  at the top of `ChordGuide_lib.lua`
+
+Colors and the chord source are in the same place (`CG.config`). A ReaPack update of
+ChordGuide overwrites that file, so note your values. Other settings there:
+`x_offset` for bands shifted horizontally in the note area, `poll_interval` if the
+display lags behind scrolling.
 
 ### Limits
 
-- Bands are drawn only in the piano roll with **all note rows shown**. With unused
+- Colors are drawn only in the piano roll with **all note rows shown**. With unused
   rows hidden, or in other editor modes, they are switched off
+- On the keyboard, a note row is tinted, not the shape of the key
 - Regions named like a section letter (`A`, `B`) read as chords. Use the chord track
   to avoid this
 - Solfege note names (`Do`, `Re`) are not supported

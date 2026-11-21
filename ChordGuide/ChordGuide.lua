@@ -2,16 +2,20 @@
   @description ChordGuide - Highlight chord tones in MIDI editor
   @author amenonegames
   @license MIT
-  @version 0.1.0
+  @version 0.2.0
   @provides
     [main=main,midi_editor] .
     [nomain] ChordGuide_lib.lua
     [main=midi_editor] ChordGuide - Move selected notes to chord tone above.lua
     [main=midi_editor] ChordGuide - Move selected notes to chord tone below.lua
     [main=midi_editor] ChordGuide - Snap selected notes to nearest chord tone.lua
+    [main=midi_editor] ChordGuide - Cycle display (keyboard, note area, both).lua
+    [main=midi_editor] ChordGuide - Nudge guides up by 1 pixel.lua
+    [main=midi_editor] ChordGuide - Nudge guides down by 1 pixel.lua
   @about
     Highlights the chord tones of the chord track (or project regions) and
-    the key snap scale as colored bands in the MIDI editor piano roll.
+    the key snap scale in the MIDI editor: on the piano keyboard for the chord
+    at the cursor, and/or as bands in the note area.
 
     Chords are read in the notation of FeedTheCat's Lil Chordbox.
     Requires js_ReaScriptAPI. Settings are at the top of the lib file.
@@ -36,26 +40,17 @@ if reaper.set_action_options then reaper.set_action_options(1) end
 
 local _, _, sec, cmd = reaper.get_action_context()
 
-local os_name = reaper.GetOS()
-local is_windows = os_name:match('Win')
-local is_macos = os_name:match('OSX') or os_name:match('macOS')
--- Width of the piano pane at 100% scaling (used to detect UI scaling)
-local piano_pane_scale1_w = is_windows and 128 or is_macos and 145 or 161
--- Height of the ruler at the top of the notes view at 100% scaling
-local ruler_scale1_h = 62
-
 local midi_editor_section = 32060
 local cmd_show_all_rows = 40452
-
-local bitmap
-local bitmap_w, bitmap_h
-local composite_view
 
 local prev_hwnd
 local notes_view
 local piano_pane
 local prev_poll_time
-local prev_signature
+
+-- One overlay per window: {window, bitmap, w, h, signature}
+local keys_overlay = {}
+local notes_overlay = {}
 
 local function Premultiply(color)
     local rgb, opacity = color[1], color[2]
@@ -108,89 +103,119 @@ local function GetEditorView(take)
     return view
 end
 
-local function ReleaseBitmap()
-    if bitmap then
-        if composite_view and reaper.ValidatePtr(composite_view, 'HWND*') then
-            reaper.JS_Composite_Unlink(composite_view, bitmap)
-            reaper.JS_Window_InvalidateRect(composite_view, 0, 0, bitmap_w,
-                bitmap_h, false)
+local function ReleaseOverlay(overlay)
+    if overlay.bitmap then
+        local window = overlay.window
+        if window and reaper.ValidatePtr(window, 'HWND*') then
+            reaper.JS_Composite_Unlink(window, overlay.bitmap)
+            reaper.JS_Window_InvalidateRect(window, 0, 0, overlay.w,
+                overlay.h, false)
         end
-        reaper.JS_LICE_DestroyBitmap(bitmap)
+        reaper.JS_LICE_DestroyBitmap(overlay.bitmap)
     end
-    bitmap = nil
-    composite_view = nil
+    overlay.bitmap = nil
+    overlay.window = nil
+    overlay.signature = nil
 end
 
-local function PrepareBitmap(w, h)
-    if bitmap and w == bitmap_w and h == bitmap_h and
-        composite_view == notes_view then
-        return
+-- Clears the overlay and makes sure its bitmap matches the window
+local function BeginDraw(overlay, window, w, h)
+    if not overlay.bitmap or w ~= overlay.w or h ~= overlay.h or
+        window ~= overlay.window then
+        ReleaseOverlay(overlay)
+        overlay.bitmap = reaper.JS_LICE_CreateBitmap(true, w, h)
+        overlay.w, overlay.h = w, h
+        overlay.window = window
+        reaper.JS_Composite(window, 0, 0, w, h, overlay.bitmap, 0, 0, w, h)
+        if reaper.JS_Composite_Delay then
+            -- Reduces flickering
+            reaper.JS_Composite_Delay(window, 0.03, 0.03, 2)
+        end
     end
-    ReleaseBitmap()
-    bitmap = reaper.JS_LICE_CreateBitmap(true, w, h)
-    bitmap_w, bitmap_h = w, h
-    composite_view = notes_view
-    reaper.JS_Composite(notes_view, 0, 0, w, h, bitmap, 0, 0, w, h)
-    if reaper.JS_Composite_Delay then
-        -- Reduces flickering
-        reaper.JS_Composite_Delay(notes_view, 0.03, 0.03, 2)
-    end
+    reaper.JS_LICE_Clear(overlay.bitmap, 0)
 end
 
-local function ClearOverlay()
-    if not bitmap then return end
-    reaper.JS_LICE_Clear(bitmap, 0)
-    reaper.JS_Window_InvalidateRect(notes_view, 0, 0, bitmap_w, bitmap_h, false)
+local function EndDraw(overlay)
+    reaper.JS_Window_InvalidateRect(overlay.window, 0, 0, overlay.w,
+        overlay.h, false)
 end
 
-local function Draw(take, view, w, h, ui_scale)
-    PrepareBitmap(w, h)
-    reaper.JS_LICE_Clear(bitmap, 0)
+local function HideOverlay(overlay)
+    if overlay.signature == 'hidden' then return end
+    if overlay.bitmap then
+        reaper.JS_LICE_Clear(overlay.bitmap, 0)
+        EndDraw(overlay)
+    end
+    overlay.signature = 'hidden'
+end
 
-    local ruler_h = config.ruler_height or
-        math.floor(ruler_scale1_h * ui_scale + 0.5)
-    local area_top = ruler_h
-    local area_bottom = h - view.lanes_h
-    local row_h = view.row_h
-    local y_offs = ruler_h + config.y_offset
-
-    local function FillRows(x1, x2, pitch_filter)
-        x1 = math.max(0, math.floor(x1))
-        x2 = math.min(w, math.floor(x2))
-        if x2 <= x1 then return end
-        local last_row = math.ceil((area_bottom - y_offs) / row_h)
-        for row = 0, last_row do
-            local pitch = view.top_pitch - row
-            if pitch < 0 then break end
-            local color = pitch <= 127 and pitch_filter(pitch % 12)
-            if color then
-                local y1 = math.max(area_top, y_offs + row * row_h)
-                local y2 = math.min(area_bottom, y_offs + (row + 1) * row_h)
-                if y2 > y1 then
-                    reaper.JS_LICE_FillRect(bitmap, x1, y1, x2 - x1, y2 - y1,
-                        color, 1, 'COPY')
-                end
+-- Fills the note rows for which get_color(pitch class) returns a color
+-- rows: {top_pitch, row_h, y, top, bottom} (pixel positions in the window)
+local function FillRows(overlay, rows, x1, x2, get_color)
+    x1 = math.max(0, math.floor(x1))
+    x2 = math.min(overlay.w, math.floor(x2))
+    if x2 <= x1 then return end
+    local last_row = math.ceil((rows.bottom - rows.y) / rows.row_h)
+    for row = 0, last_row do
+        local pitch = rows.top_pitch - row
+        if pitch < 0 then break end
+        local color = pitch <= 127 and get_color(pitch % 12)
+        if color then
+            local y1 = math.max(rows.top, rows.y + row * rows.row_h)
+            local y2 = math.min(rows.bottom, rows.y + (row + 1) * rows.row_h)
+            if y2 > y1 then
+                reaper.JS_LICE_FillRect(overlay.bitmap, x1, y1, x2 - x1,
+                    y2 - y1, color, 1, 'COPY')
             end
         end
     end
+end
 
-    -- Scale tones (from key snap setting)
-    local scale_pcs
-    if config.show_scale then
-        local is_key_snap, scale_root, scale_mask = reaper.MIDI_GetScale(take)
-        if is_key_snap then
-            scale_pcs = {}
-            for i = 0, 11 do
-                if scale_mask & (1 << i) ~= 0 then
-                    scale_pcs[(scale_root + i) % 12] = true
-                end
-            end
-            local scale_color = Premultiply(config.color_scale)
-            FillRows(0, w, function(pc) return scale_pcs[pc] and scale_color end)
+-- Scale tones from the key snap setting, as {[pitch class] = true}
+local function GetScalePitchClasses(take)
+    if not config.show_scale then return end
+    local is_key_snap, scale_root, scale_mask = reaper.MIDI_GetScale(take)
+    if not is_key_snap then return end
+    local scale_pcs = {}
+    for i = 0, 11 do
+        if scale_mask & (1 << i) ~= 0 then
+            scale_pcs[(scale_root + i) % 12] = true
         end
     end
+    return scale_pcs
+end
 
-    -- Chord tones
+-- Keyboard: chord tones of the chord at the play/edit cursor
+local function DrawKeys(rows, w, h, chord, scale_pcs)
+    local overlay = keys_overlay
+    BeginDraw(overlay, piano_pane, w, h)
+
+    local root_color = Premultiply(config.key_color_root)
+    local chord_color = Premultiply(config.key_color_chord)
+    local scale_color = Premultiply(config.key_color_scale)
+
+    FillRows(overlay, rows, 0, w, function(pc)
+        if chord then
+            if pc == chord.root then return root_color end
+            if chord.pcs[pc] then return chord_color end
+        end
+        if scale_pcs and scale_pcs[pc] then return scale_color end
+    end)
+    EndDraw(overlay)
+end
+
+-- Note area: chord tones for each chord's time range
+local function DrawNotes(take, view, rows, w, h, scale_pcs)
+    local overlay = notes_overlay
+    BeginDraw(overlay, notes_view, w, h)
+
+    if scale_pcs then
+        local scale_color = Premultiply(config.color_scale)
+        FillRows(overlay, rows, 0, w, function(pc)
+            return scale_pcs[pc] and scale_color
+        end)
+    end
+
     local is_beat_based = view.timebase == 0 or view.timebase == 4
     local view_start_time = reaper.MIDI_GetProjTimeFromPPQPos(take,
         view.start_ppq)
@@ -219,13 +244,22 @@ local function Draw(take, view, w, h, ui_scale)
     local segments = CG.GetChordSegments(view_start_time, view_end_time)
     for _, seg in ipairs(segments) do
         local chord = seg.chord
-        FillRows(TimeToX(seg.s), TimeToX(seg.e), function(pc)
+        FillRows(overlay, rows, TimeToX(seg.s), TimeToX(seg.e), function(pc)
             if pc == chord.root then return root_color end
             if chord.pcs[pc] then return chord_color end
         end)
     end
+    EndDraw(overlay)
+end
 
-    reaper.JS_Window_InvalidateRect(notes_view, 0, 0, w, h, false)
+local function GetRows(view, y, h)
+    return {
+        top_pitch = view.top_pitch,
+        row_h = view.row_h,
+        y = y,
+        top = y,
+        bottom = h - view.lanes_h,
+    }
 end
 
 local function Main()
@@ -234,21 +268,22 @@ local function Main()
     local hwnd = reaper.MIDIEditor_GetActive()
     if not hwnd then
         if prev_hwnd then
-            ReleaseBitmap()
+            ReleaseOverlay(keys_overlay)
+            ReleaseOverlay(notes_overlay)
             prev_hwnd = nil
-            prev_signature = nil
         end
         return
     end
 
     if hwnd ~= prev_hwnd then
         prev_hwnd = hwnd
-        prev_signature = nil
         prev_poll_time = nil
+        ReleaseOverlay(keys_overlay)
+        ReleaseOverlay(notes_overlay)
         notes_view = reaper.JS_Window_FindChildByID(hwnd, 1001)
         piano_pane = reaper.JS_Window_FindChildByID(hwnd, 1003)
     end
-    if not notes_view then return end
+    if not notes_view or not piano_pane then return end
 
     local time = reaper.time_precise()
     if prev_poll_time and time < prev_poll_time + config.poll_interval then
@@ -265,37 +300,63 @@ local function Main()
 
     local view = is_supported and GetEditorView(take)
     if not view or view.row_h <= 0 or view.hzoom <= 0 then
-        if prev_signature ~= 'hidden' then
-            prev_signature = 'hidden'
-            ClearOverlay()
-        end
+        HideOverlay(keys_overlay)
+        HideOverlay(notes_overlay)
         return
     end
 
-    local _, w, h = reaper.JS_Window_GetClientSize(notes_view)
-    local _, piano_pane_w = reaper.JS_Window_GetClientSize(piano_pane)
-    if not w or w <= 0 or h <= 0 then return end
-    local ui_scale = (piano_pane_w or 0) > 0 and
-        piano_pane_w / piano_pane_scale1_w or 1
-
+    local mode = CG.GetDisplayMode()
+    local y = config.ruler_height + CG.GetNudge()
     local is_key_snap, scale_root, scale_mask = reaper.MIDI_GetScale(take)
-    local signature = table.concat({
-        tostring(take), w, h, piano_pane_w, view.start_ppq, view.hzoom,
-        view.top_pitch, view.row_h, view.timebase, view.lanes_h,
-        tostring(is_key_snap), tostring(scale_root), tostring(scale_mask),
-        reaper.GetProjectStateChangeCount(0),
+    local common_signature = table.concat({
+        tostring(take), y, view.top_pitch, view.row_h, view.lanes_h,
+        tostring(config.show_scale and is_key_snap), tostring(scale_root),
+        tostring(scale_mask),
     }, ' ')
 
-    if signature ~= prev_signature then
-        prev_signature = signature
-        Draw(take, view, w, h, ui_scale)
+    if mode == 'notes' then
+        HideOverlay(keys_overlay)
+    else
+        local _, w, h = reaper.JS_Window_GetClientSize(piano_pane)
+        if w and w > 0 and h > 0 then
+            local is_playing = reaper.GetPlayState() & 1 == 1
+            local pos = is_playing and reaper.GetPlayPosition() or
+                reaper.GetCursorPosition()
+            local chord = CG.GetChordAt(pos)
+            local signature = table.concat({
+                common_signature, w, h, tostring(chord),
+            }, ' ')
+            if signature ~= keys_overlay.signature then
+                DrawKeys(GetRows(view, y, h), w, h, chord,
+                    GetScalePitchClasses(take))
+                keys_overlay.signature = signature
+            end
+        end
+    end
+
+    if mode == 'keys' then
+        HideOverlay(notes_overlay)
+    else
+        local _, w, h = reaper.JS_Window_GetClientSize(notes_view)
+        if w and w > 0 and h > 0 then
+            local signature = table.concat({
+                common_signature, w, h, view.start_ppq, view.hzoom,
+                view.timebase, reaper.GetProjectStateChangeCount(0),
+            }, ' ')
+            if signature ~= notes_overlay.signature then
+                DrawNotes(take, view, GetRows(view, y, h), w, h,
+                    GetScalePitchClasses(take))
+                notes_overlay.signature = signature
+            end
+        end
     end
 end
 
 local function Exit()
     reaper.SetToggleCommandState(sec, cmd, 0)
     reaper.RefreshToolbar2(sec, cmd)
-    ReleaseBitmap()
+    ReleaseOverlay(keys_overlay)
+    ReleaseOverlay(notes_overlay)
 end
 
 reaper.SetToggleCommandState(sec, cmd, 1)

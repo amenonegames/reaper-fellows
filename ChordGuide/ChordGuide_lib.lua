@@ -1,5 +1,5 @@
 --[[
-  ChordGuide library (v0.1.0)
+  ChordGuide library (v0.2.0)
   @author amenonegames
   @license MIT
   @noindex
@@ -26,21 +26,71 @@ CG.config = {
     -- 'region' = project regions only
     source = 'auto',
 
-    -- Overlay colors: {0xRRGGBB, opacity 0-1}
+    -- Where chord tones are shown (the action "ChordGuide - Cycle display"
+    -- overrides this):
+    -- 'keys'  = on the piano keyboard, for the chord at the play/edit cursor
+    -- 'notes' = as bands in the note area, for each chord's time range
+    -- 'both'  = keyboard and note area
+    display = 'keys',
+
+    -- Colors on the keyboard: {0xRRGGBB, opacity 0-1}
+    key_color_root = {0xFF7A1A, 0.62},
+    key_color_chord = {0x1E9BFF, 0.48},
+    key_color_scale = {0x35C46A, 0.20},
+    -- Colors in the note area
     color_root = {0xFF9A3C, 0.38},
     color_chord = {0x4CC2FF, 0.26},
     color_scale = {0xFFFFFF, 0.07},
     -- Draw scale tones (taken from the MIDI editor's key snap setting)
     show_scale = true,
 
-    -- Geometry calibration (pixels). Change these if the bands are shifted.
-    -- nil = automatic
-    ruler_height = nil,
-    y_offset = 0,
+    -- Height in pixels of the ruler above the note rows. 80 fits REAPER 7
+    -- on Windows at 100% scaling with one region/marker lane in the ruler.
+    -- For fine adjustment use the "ChordGuide - Nudge" actions instead
+    -- (they are kept when the script is updated)
+    ruler_height = 80,
     x_offset = 0,
     -- How often the editor scroll/zoom state is polled (seconds)
     poll_interval = 0.05,
 }
+
+------------------------------- EXT STATE -------------------------------
+
+-- Settings changed by actions are stored here and survive script updates
+CG.extname = 'amenone.ChordGuide'
+
+local display_modes = {'keys', 'notes', 'both'}
+
+function CG.GetDisplayMode()
+    local mode = reaper.GetExtState(CG.extname, 'display')
+    for _, valid_mode in ipairs(display_modes) do
+        if mode == valid_mode then return mode end
+    end
+    return CG.config.display
+end
+
+function CG.CycleDisplayMode()
+    local mode = CG.GetDisplayMode()
+    local next_mode = display_modes[1]
+    for i, valid_mode in ipairs(display_modes) do
+        if mode == valid_mode then
+            next_mode = display_modes[i % #display_modes + 1]
+        end
+    end
+    reaper.SetExtState(CG.extname, 'display', next_mode, true)
+    return next_mode
+end
+
+-- Vertical correction in pixels (positive = down)
+function CG.GetNudge()
+    return tonumber(reaper.GetExtState(CG.extname, 'nudge')) or 0
+end
+
+function CG.Nudge(pixels)
+    local nudge = CG.GetNudge() + pixels
+    reaper.SetExtState(CG.extname, 'nudge', tostring(nudge), true)
+    return nudge
+end
 
 ------------------------------ CHORD NAMES ------------------------------
 
@@ -404,6 +454,12 @@ function CG.GetChordSegments(start_time, end_time)
         if source == 'track' then return {} end
     end
     return GetRegionSegments(start_time, end_time)
+end
+
+-- Returns the chord at the given project time
+function CG.GetChordAt(time)
+    local seg = CG.GetChordSegments(time, time + 0.000001)[1]
+    return seg and seg.chord
 end
 
 -- Returns the chord that overlaps the given time range the most

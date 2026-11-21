@@ -63,17 +63,16 @@ First release: chat panel with the REAPER selection attached to each message.
         <description><![CDATA[
 # ChordGuide
 
-Shows the chord tones of your chord progression as colored bands in the MIDI
-editor piano roll, and moves selected notes onto them. Plain ReaScript; it does
-not use Claude.
+Shows the chord tones of your chord progression in the MIDI editor: on the
+piano keyboard for the chord at the cursor, as bands in the note area, or both.
+It also moves selected notes onto chord tones. Plain ReaScript; it does not use
+Claude.
 
 Chords are read from the chord track ("Chords") or from project regions, in the
-notation of FeedTheCat's Lil Chordbox. With key snap on, the scale tones get a
-faint band as well.
+notation of FeedTheCat's Lil Chordbox. With key snap on, the scale tones are
+tinted as well.
 
-0.1.0 has been checked against a mocked REAPER only. The band positions rest on
-assumptions about the MIDI editor layout; settings to correct them are at the
-top of ChordGuide_lib.lua.
+If the colors sit above or below their rows, run the "Nudge guides" actions.
 
 ## Requirements
 
@@ -81,12 +80,29 @@ top of ChordGuide_lib.lua.
 
 ## Actions
 
-- ChordGuide.lua: starts the bands; run it again to stop
+- ChordGuide.lua: starts the display; run it again to stop
+- Cycle display (keyboard, note area, both)
 - Move selected notes to chord tone above / below
 - Snap selected notes to nearest chord tone
+- Nudge guides up / down by 1 pixel
         ]]></description>
         <link rel="website">https://github.com/amenonegames/reaper-fellows</link>
       </metadata>
+      <version name="0.2.0" author="amenonegames" time="2026-11-20T15:01:47Z">
+        <changelog><![CDATA[
+- Chord tones are now shown on the piano keyboard, for the chord at the play/edit cursor. New action "Cycle display" switches between keyboard, note area and both
+- Fixed the vertical position (colors were 8 pixels too high in REAPER 7 on Windows)
+- New actions "Nudge guides up / down by 1 pixel" for fine adjustment; the correction survives updates
+        ]]></changelog>
+        <source main="main midi_editor" file="ChordGuide.lua">https://github.com/amenonegames/reaper-fellows/raw/9d1a43716cba00f3bd8430fbf7d332a9d8ad71e7/ChordGuide/ChordGuide.lua</source>
+        <source file="ChordGuide_lib.lua">https://github.com/amenonegames/reaper-fellows/raw/9d1a43716cba00f3bd8430fbf7d332a9d8ad71e7/ChordGuide/ChordGuide_lib.lua</source>
+        <source main="midi_editor" file="ChordGuide - Move selected notes to chord tone above.lua">https://github.com/amenonegames/reaper-fellows/raw/9d1a43716cba00f3bd8430fbf7d332a9d8ad71e7/ChordGuide/ChordGuide%20-%20Move%20selected%20notes%20to%20chord%20tone%20above.lua</source>
+        <source main="midi_editor" file="ChordGuide - Move selected notes to chord tone below.lua">https://github.com/amenonegames/reaper-fellows/raw/9d1a43716cba00f3bd8430fbf7d332a9d8ad71e7/ChordGuide/ChordGuide%20-%20Move%20selected%20notes%20to%20chord%20tone%20below.lua</source>
+        <source main="midi_editor" file="ChordGuide - Snap selected notes to nearest chord tone.lua">https://github.com/amenonegames/reaper-fellows/raw/9d1a43716cba00f3bd8430fbf7d332a9d8ad71e7/ChordGuide/ChordGuide%20-%20Snap%20selected%20notes%20to%20nearest%20chord%20tone.lua</source>
+        <source main="midi_editor" file="ChordGuide - Cycle display (keyboard, note area, both).lua">https://github.com/amenonegames/reaper-fellows/raw/9d1a43716cba00f3bd8430fbf7d332a9d8ad71e7/ChordGuide/ChordGuide%20-%20Cycle%20display%20%28keyboard%2C%20note%20area%2C%20both%29.lua</source>
+        <source main="midi_editor" file="ChordGuide - Nudge guides up by 1 pixel.lua">https://github.com/amenonegames/reaper-fellows/raw/9d1a43716cba00f3bd8430fbf7d332a9d8ad71e7/ChordGuide/ChordGuide%20-%20Nudge%20guides%20up%20by%201%20pixel.lua</source>
+        <source main="midi_editor" file="ChordGuide - Nudge guides down by 1 pixel.lua">https://github.com/amenonegames/reaper-fellows/raw/9d1a43716cba00f3bd8430fbf7d332a9d8ad71e7/ChordGuide/ChordGuide%20-%20Nudge%20guides%20down%20by%201%20pixel.lua</source>
+      </version>
       <version name="0.1.0" author="amenonegames" time="2026-11-20T14:42:01Z">
         <changelog><![CDATA[
 First release: chord tone and scale bands in the piano roll, and three actions that move selected notes onto chord tones.

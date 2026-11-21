@@ -26,6 +26,7 @@ batch launcher, or what the real ReaScript API does with a script.
     lua "$(pwd)/dev/run_chordguide_test.lua"
 
 Checks chord name parsing against every name in the chord table, the note target
-logic, and the band geometry with REAPER and js_ReaScriptAPI mocked. It does not
+logic, the settings changed by actions, and the keyboard and note area geometry with
+REAPER and js_ReaScriptAPI mocked. It does not
 cover what the real MIDI editor looks like: ruler height, CC lane heights and
 UI scaling are assumptions until checked in REAPER.
